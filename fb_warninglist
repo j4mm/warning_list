@@ -1,0 +1,89 @@
+FUNCTION_BLOCK Warning_Sort
+VAR_IN_OUT
+	clear: BOOL; 
+END_VAR
+VAR_OUTPUT
+	List: ARRAY [1..6] OF Warning; //warning struct
+	AnyActiveWarning: BOOL; 
+END_VAR
+VAR
+	z: USINT;
+	x: USINT;
+	y: USINT;
+END_VAR
+
+--------------
+
+IF NOT(SystemTime.uiDateTime > DT#1990-01-01-00:00:00) OR WarningsPrg.test THEN //check for boot up
+	RETURN;
+END_IF
+
+AnyActiveWarning:= 0;
+IF prvars.Warnings[x].active THEN //return true if any warnings are active 
+	AnyActiveWarning:= 1;
+END_IF
+IF NOT AnyActiveWarning THEN 
+	RETURN; 
+END_IF
+
+FOR x:= 1 TO prvars.tw (*list length*) DO //loop thru the warnings
+(* handle the list of warnings, putting new entries in after removing any duplicate entries *)
+	prvars.Warnings[x].Trg_Warning(CLK:= prvars.Warnings[x].active); 		//set triggers for when a warning is first generated
+	IF prvars.Warnings[x].Trg_Warning.Q THEN   				 			   //when a warning is triggered
+		IF NOT(prvars.Warnings[x].name = List[1].name) THEN 			  //check that it's not also first entry
+			FOR y:= 2 TO 6 DO  							   				 //scan the list past first entry for a repeat
+				IF prvars.Warnings[x].name = List[y].name OR y = 6 THEN //if the current position is a repeat or the end of list
+					FOR z:= y TO 2 BY -1 DO 						   //move everything below up one entry
+						List[z].name:=		 List[z-1].name; 
+						List[z].text:= 		 List[z-1].text; 
+						List[z].red:= 		 List[z-1].red; 
+						List[z].yellow:= 	 List[z-1].yellow; 
+						List[z].fixed:= 	 List[z-1].fixed; 
+						List[z].active:= 	 List[z-1].active; 
+						List[z].Trg_Warning:=List[z-1].Trg_Warning;
+						List[z].Trg_Fixed:=  List[z-1].Trg_Fixed;
+						List[z].timestamp:=	 List[z-1].timestamp; //note: List[z]:= List[z-1] produces unexpected results
+					END_FOR										  //do not modify it this way. if adding a new part to the
+					EXIT;										  //warning structure, reference is directly here and below
+				END_IF
+			END_FOR
+		END_IF
+		List[1].name:=		 	prvars.Warnings[x].name; //fill the first entry
+		List[1].text:= 		 	prvars.Warnings[x].text; 
+		List[1].red:= 		 	prvars.Warnings[x].red; 
+		List[1].yellow:= 		prvars.Warnings[x].yellow;
+		List[1].fixed:= 		prvars.Warnings[x].fixed;
+		List[1].active:= 	 	1;
+		List[1].Trg_Warning:= 	prvars.Warnings[x].Trg_Warning;
+		List[1].Trg_Fixed:= 	prvars.Warnings[x].Trg_Fixed;
+		List[1].timestamp:=	 	SystemTime.uiDateTime; 
+	END_IF
+	(* this section handles fixed warnings*) 
+	prvars.Warnings[x].Trg_Fixed(CLK:= NOT(prvars.Warnings[x].active)); //set a trigger for when warnings turn false 
+	IF prvars.Warnings[x].Trg_Fixed.Q THEN 			 				   //when a warning is fixed
+		FOR y:= 1 TO 6 DO 		   									  //look through the list
+			IF List[y].name = prvars.Warnings[x].name THEN 			 //find the warning in the list that is fixed
+				List[y].fixed:= 1; 								    //set fixed
+			END_IF 
+		END_FOR
+	END_IF
+END_FOR
+
+IF clear THEN 					    //if the user hits the clear log button
+	FOR x:= 6 TO 1 BY -1 DO 	   //loop through the warnings
+		IF List[x].fixed = 1 THEN //look for a fixed warning
+			FOR y:= x TO 6 DO    //move the all the entries above down one position
+			List[y].name:=		 	List[y+1].name;
+			List[y].text:= 		 	List[y+1].text;
+			List[y].red:= 		 	List[y+1].red;
+			List[y].yellow:= 	 	List[y+1].yellow;
+			List[y].fixed:=			List[y+1].fixed;
+			List[y].active:= 	 	List[y+1].active;
+			List[y].Trg_Warning:= 	List[y+1].Trg_Warning;
+			List[y].Trg_Fixed:= 	List[y+1].Trg_Fixed;
+			List[y].timestamp:=	 	List[y+1].timestamp; 
+			END_FOR
+		END_IF
+	END_FOR
+	clear:= 0; //reset the button 
+END_IF
